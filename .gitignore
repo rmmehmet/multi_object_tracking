@@ -1,0 +1,27 @@
+# =========================
+# ENV / CACHE
+# =========================
+venv/
+__pycache__/
+*.pyc
+
+# IDE / editor
+.vscode/
+.idea/
+.qodo/
+
+# =========================
+# PROJECT FOLDERS (FULL IGNORE)
+# =========================
+deep_sort/
+model/
+model_data/
+output/
+videos/
+
+# =========================
+# FILE TYPES (optional safety)
+# =========================
+*.mp4
+*.avi
+*.mov
