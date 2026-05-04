@@ -2,12 +2,12 @@ from deep_sort.deep_sort.tracker import Tracker as DeepSortTracker
 from deep_sort.deep_sort import nn_matching
 from deep_sort.deep_sort.detection import Detection
 import numpy as np
-from osnet_encoder import OSNetEncoder
+from models.osnet_encoder import OSNetEncoder
 
 
-class Tracker:
+class PersonTracker:
     def __init__(self):
-        max_cosine_distance = 0.3  # OSNet için optimize
+        max_cosine_distance = 0.3
         nn_budget = None
 
         metric = nn_matching.NearestNeighborDistanceMetric(
@@ -49,13 +49,11 @@ class Tracker:
             if not track.is_confirmed():
                 continue
 
-            if track.time_since_update > 10:  # daha stabil
+            if track.time_since_update > 10:
                 continue
 
             bbox = track.to_tlbr()
-            track_id = track.track_id
-
-            tracks.append(Track(track_id, bbox))
+            tracks.append(Track(track.track_id, bbox))
 
         self.tracks = tracks
 

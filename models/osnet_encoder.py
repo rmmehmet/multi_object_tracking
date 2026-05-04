@@ -3,7 +3,6 @@ import numpy as np
 import torch
 import torchreid
 
-
 class OSNetEncoder:
     def __init__(self, device=None):
         if device is None:
