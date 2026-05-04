@@ -4,47 +4,62 @@ import cv2
 from ultralytics import YOLO
 from tracker import Tracker
 
-video_path = os.path.join('.', 'videos', 'sample-video.mp4')
+video_path = os.path.join('.', 'videos', '2954065-hd_1920_1080_30fps.mp4')
 video_out_path = os.path.join('.', 'output', 'output.mp4')
-cap = cv2.VideoCapture(video_path)
 
+cap = cv2.VideoCapture(video_path)
 ret, frame = cap.read()
 
-cap_out = cv2.VideoWriter(video_out_path, cv2.VideoWriter_fourcc(*'mp4v'), cap.get(cv2.CAP_PROP_FPS), (frame.shape[1], frame.shape[0]))
+cap_out = cv2.VideoWriter(
+    video_out_path,
+    cv2.VideoWriter_fourcc(*'mp4v'),
+    cap.get(cv2.CAP_PROP_FPS),
+    (frame.shape[1], frame.shape[0])
+)
 
 model = YOLO("model/yolo26n.pt")
-
 tracker = Tracker()
 
-colors = [(random.randint(0, 255), random.randint(0, 255), random.randint(0, 255)) for j in range(10)]
+colors = {}
 detection_threshold = 0.5
-while ret:
 
+while ret:
     results = model(frame)
 
+    detections = []
+
     for result in results:
-
-        detections = []
-
         for r in result.boxes.data.tolist():
             x1, y1, x2, y2, score, class_id = r
-            x1 = int(x1)
-            y1 = int(y1)
-            x2 = int(x2)
-            y2 = int(y2)
             class_id = int(class_id)
+
+            # sadece person
+            if class_id != 0:
+                continue
+
             if score > detection_threshold:
-                detections.append([x1, y1, x2, y2, score])
-                #print(r)
-        
-        tracker.update(frame, detections)
+                detections.append([int(x1), int(y1), int(x2), int(y2), score])
 
-        for track in tracker.tracks:
-            bbox = track.bbox
-            x1, y1, x2, y2 = bbox
-            track_id = track.track_id
+    tracker.update(frame, detections)
 
-            cv2.rectangle(frame, (int(x1), int(y1)), (int(x2), int(y2)), (colors[track_id % len(colors)]), 3)
+    for track in tracker.tracks:
+        x1, y1, x2, y2 = track.bbox
+        track_id = track.track_id
+
+        if track_id not in colors:
+            colors[track_id] = (
+                random.randint(0,255),
+                random.randint(0,255),
+                random.randint(0,255)
+            )
+
+        cv2.rectangle(
+            frame,
+            (int(x1), int(y1)),
+            (int(x2), int(y2)),
+            colors[track_id],
+            3
+        )
 
     cap_out.write(frame)
     ret, frame = cap.read()

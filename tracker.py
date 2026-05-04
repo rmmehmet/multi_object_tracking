@@ -1,30 +1,30 @@
 from deep_sort.deep_sort.tracker import Tracker as DeepSortTracker
-from deep_sort.tools import generate_detections as gdet
 from deep_sort.deep_sort import nn_matching
 from deep_sort.deep_sort.detection import Detection
 import numpy as np
+from osnet_encoder import OSNetEncoder
 
 
 class Tracker:
-    tracker = None
-    encoder = None
-    tracks = None
-
     def __init__(self):
-        max_cosine_distance = 0.4
+        max_cosine_distance = 0.3  # OSNet için optimize
         nn_budget = None
 
-        encoder_model_filename = 'model_data/mars-small128.pb'
+        metric = nn_matching.NearestNeighborDistanceMetric(
+            "cosine",
+            max_cosine_distance,
+            nn_budget
+        )
 
-        metric = nn_matching.NearestNeighborDistanceMetric("cosine", max_cosine_distance, nn_budget)
         self.tracker = DeepSortTracker(metric)
-        self.encoder = gdet.create_box_encoder(encoder_model_filename, batch_size=1)
+        self.encoder = OSNetEncoder()
+        self.tracks = []
 
     def update(self, frame, detections):
 
         if len(detections) == 0:
             self.tracker.predict()
-            self.tracker.update([])  
+            self.tracker.update([])
             self.update_tracks()
             return
 
@@ -35,8 +35,8 @@ class Tracker:
         features = self.encoder(frame, bboxes)
 
         dets = []
-        for bbox_id, bbox in enumerate(bboxes):
-            dets.append(Detection(bbox, scores[bbox_id], features[bbox_id]))
+        for i, bbox in enumerate(bboxes):
+            dets.append(Detection(bbox, scores[i], features[i]))
 
         self.tracker.predict()
         self.tracker.update(dets)
@@ -44,22 +44,23 @@ class Tracker:
 
     def update_tracks(self):
         tracks = []
+
         for track in self.tracker.tracks:
-            if not track.is_confirmed() or track.time_since_update > 1:
+            if not track.is_confirmed():
                 continue
+
+            if track.time_since_update > 10:  # daha stabil
+                continue
+
             bbox = track.to_tlbr()
+            track_id = track.track_id
 
-            id = track.track_id
-
-            tracks.append(Track(id, bbox))
+            tracks.append(Track(track_id, bbox))
 
         self.tracks = tracks
 
 
 class Track:
-    track_id = None
-    bbox = None
-
-    def __init__(self, id, bbox):
-        self.track_id = id
+    def __init__(self, track_id, bbox):
+        self.track_id = track_id
         self.bbox = bbox
