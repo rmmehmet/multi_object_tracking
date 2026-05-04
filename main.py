@@ -1,12 +1,11 @@
 import os
-import random
 import cv2
 from ultralytics import YOLO
 from trackers.person_tracker import PersonTracker
 from trackers.car_tracker import CarTracker
 
 video_path = os.path.join('.', 'videos', '2954065-hd_1920_1080_30fps.mp4')
-video_out_path = os.path.join('.', 'output', 'output_new_method.mp4')
+video_out_path = os.path.join('.', 'output', 'output_trans_id.mp4')
 
 cap = cv2.VideoCapture(video_path)
 ret, frame = cap.read()
@@ -110,7 +109,7 @@ while ret:
                     0.6,
                     colors[tid], 2)
 
-        # 🔥 TRAIL EFFECT
+        # TRAIL EFFECT
         draw_trail(frame, t, colors[tid])
 
     cap_out.write(frame)
