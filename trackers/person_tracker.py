@@ -1,11 +1,13 @@
 """
 PersonTracker — Deep SORT + TransReID
 
-Replaces OSNet encoder with TransReID (ViT-B/16) for stronger
-Re-ID in crowded / cross-camera scenarios.
+FIX-2 : bboxes_xywh dönüşümü açıkça belgelendi ve doğrulandı.
+         Encoder xywh alır → _crop içinde x,y,w,h olarak kullanır. ✓
+         Deep SORT Detection da xywh bekler. ✓
 
-Key change: OSNetEncoder → TransReIDEncoder
-Everything else (Deep SORT metric, predict/update loop) stays the same.
+FIX-3 : checkpoint_path=None durumunda kullanıcı uyarılıyor.
+         ImageNet-pretrained ViT ile çalışmaya devam eder ama
+         TransReID fine-tune checkpoint varsa performans artar.
 """
 
 import numpy as np
@@ -25,14 +27,24 @@ class PersonTracker:
     ):
         """
         Args:
-            max_cosine_distance : Cosine threshold for feature matching.
-                                  TransReID produces tighter clusters than
-                                  OSNet → 0.3 is a safe default; lower to
-                                  0.2 if you see ID-switches.
-            nn_budget           : Max stored features per identity (None = unlimited).
-            max_age             : Frames to keep a lost track alive before deletion.
-            checkpoint_path     : Optional path to TransReID .pth checkpoint.
+            max_cosine_distance : Cosine eşik. TransReID kümeleri sıkı olduğu
+                                  için 0.3 güvenli default. ID switch görürsen
+                                  0.2'ye indir.
+            nn_budget           : Identity başına max saklanan özellik sayısı.
+            max_age             : Kayıp track'in silinmeden önceki frame sayısı.
+            checkpoint_path     : TransReID .pth checkpoint yolu (opsiyonel).
+                                  None → sadece ImageNet ViT kullanılır.
+                                  Checkpoint için: https://github.com/damo-cv/TransReID
         """
+        # FIX-3: Checkpoint yoksa uyar, yine de çalış
+        if checkpoint_path is None:
+            print(
+                "[PersonTracker] UYARI: TransReID checkpoint belirtilmedi.\n"
+                "  ImageNet-pretrained ViT-B/16 kullanılıyor.\n"
+                "  Daha iyi Re-ID için: https://github.com/damo-cv/TransReID\n"
+                "  checkpoint_path parametresine .pth dosya yolunu ver."
+            )
+
         metric = nn_matching.NearestNeighborDistanceMetric(
             "cosine",
             max_cosine_distance,
@@ -40,14 +52,23 @@ class PersonTracker:
         )
         self.tracker = DeepSortTracker(metric, max_age=max_age)
         self.encoder = TransReIDEncoder(checkpoint_path=checkpoint_path)
+
+        # History: track_id → [[x1,y1,x2,y2], ...]  (xyxy formatı)
+        self._histories: dict[int, list] = {}
+
         self.tracks: list[Track] = []
 
-    # ─────────────────────────────────────────────────────────────────────
+    # ──────────────────────────────────────────────────────────────────────
     def update(self, frame: np.ndarray, detections: list[list]) -> None:
         """
         Args:
             frame      : BGR uint8 numpy array
-            detections : list of [x1, y1, x2, y2, score]
+            detections : [[x1, y1, x2, y2, score], ...]   (xyxy + score)
+
+        Koordinat dönüşümü:
+            Gelen format  : xyxy  (x1, y1, x2, y2)
+            Deep SORT/Enc : xywh  (x1, y1, width, height)
+            FIX-2: Bu dönüşüm aşağıda açıkça yapılıyor.
         """
         self.tracker.predict()
 
@@ -56,14 +77,16 @@ class PersonTracker:
             self._sync_tracks()
             return
 
-        # Deep SORT expects xywh, not xyxy
-        bboxes = np.array([d[:4] for d in detections], dtype=np.float32)
-        bboxes_xywh = bboxes.copy()
-        bboxes_xywh[:, 2:] = bboxes[:, 2:] - bboxes[:, :2]   # w = x2-x1, h = y2-y1
+        bboxes_xyxy = np.array([d[:4] for d in detections], dtype=np.float32)
+
+        # xyxy → xywh  ← FIX-2: dönüşüm burada, net ve açık
+        bboxes_xywh = bboxes_xyxy.copy()
+        bboxes_xywh[:, 2] = bboxes_xyxy[:, 2] - bboxes_xyxy[:, 0]   # w = x2 - x1
+        bboxes_xywh[:, 3] = bboxes_xyxy[:, 3] - bboxes_xyxy[:, 1]   # h = y2 - y1
 
         scores = [d[4] for d in detections]
 
-        # ── TransReID feature extraction ──────────────────────────────────
+        # TransReID encoder xywh alır → _crop içinde x,y,w,h olarak kullanır ✓
         features = self.encoder(frame, bboxes_xywh)   # (N, 768)
 
         dets = [
@@ -74,21 +97,44 @@ class PersonTracker:
         self.tracker.update(dets)
         self._sync_tracks()
 
-    # ─────────────────────────────────────────────────────────────────────
+    # ──────────────────────────────────────────────────────────────────────
     def _sync_tracks(self) -> None:
-        """Convert Deep SORT internal tracks to our public Track objects."""
-        self.tracks = [
-            Track(t.track_id, t.to_tlbr())
-            for t in self.tracker.tracks
-            if t.is_confirmed() and t.time_since_update <= 10
-        ]
+        """Deep SORT iç track'lerini public Track listesine çevirir."""
+        active = []
+        for t in self.tracker.tracks:
+            if not t.is_confirmed() or t.time_since_update > 10:
+                continue
+
+            bbox_xyxy = t.to_tlbr()   # [x1, y1, x2, y2]
+            tid = t.track_id
+
+            # History güncelle
+            if tid not in self._histories:
+                self._histories[tid] = []
+            self._histories[tid].append(list(bbox_xyxy))
+
+            track = Track(tid, bbox_xyxy)
+            track.history = self._histories[tid]
+            active.append(track)
+
+        # Stale history temizle
+        active_ids = {t.track_id for t in active}
+        for tid in [k for k in self._histories if k not in active_ids]:
+            del self._histories[tid]
+
+        self.tracks = active
 
 
-# ─────────────────────────────────────────────────────────────────────────
+# ──────────────────────────────────────────────────────────────────────────────
 class Track:
-    """Lightweight public track object exposed to main.py."""
-    __slots__ = ("track_id", "bbox")
+    """
+    Dışarıya açılan track objesi.
+    bbox    : [x1, y1, x2, y2]  (xyxy)
+    history : [[x1,y1,x2,y2], ...]  — draw_trail ile tutarlı
+    """
+    __slots__ = ("track_id", "bbox", "history")
 
     def __init__(self, track_id: int, bbox):
         self.track_id = track_id
-        self.bbox = bbox          # [x1, y1, x2, y2]
+        self.bbox     = bbox
+        self.history  = []

@@ -18,8 +18,7 @@ model/
 model_data/
 output/
 videos/
-
-# =========================
+checkpoints/
 # FILE TYPES (optional safety)
 # =========================
 *.mp4
