@@ -155,7 +155,7 @@ The `CarTracker` uses Intersection over Union (IoU) to associate new detections 
 
 ### Person Tracking (Deep SORT + TransReID)
 
-The `PersonTracker` wraps the Deep SORT algorithm with an OSNet-powered appearance encoder. For each detected person, a 128×256 image crop is extracted, preprocessed, and passed through `osnet_x1_0` (pretrained on a large Re-ID dataset) to produce a normalized 512-dimensional feature vector. Deep SORT uses these embeddings alongside Kalman-filter-based motion prediction to maintain stable identities across frames — even through short occlusions.
+The `PersonTracker` wraps the Deep SORT algorithm with an OSNet-powered appearance encoder. For each detected person, a 128×256 image crop is extracted, preprocessed, and passed through `TransReID` (pretrained on a large Re-ID dataset) to produce a normalized 512-dimensional feature vector. Deep SORT uses these embeddings alongside Kalman-filter-based motion prediction to maintain stable identities across frames — even through short occlusions.
 
 ---
 
