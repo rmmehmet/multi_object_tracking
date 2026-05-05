@@ -1,17 +1,3 @@
-"""
-TransReID-based feature extractor for Person Re-Identification.
-
-Architecture: Vision Transformer (ViT-Base/16) fine-tuned for Re-ID,
-using Side Information Embeddings (SIE) and Jigsaw Patch Module (JPM)
-as described in:
-  "TransReID: Transformer-based Object Re-Identification" (He et al., 2021)
-
-We use the torchreid-compatible ViT backbone. If you have the official
-TransReID checkpoint (.pth), set `checkpoint_path` in __init__.
-Otherwise falls back to ImageNet-pretrained ViT — still stronger than OSNet
-for cross-camera scenarios due to global attention.
-"""
-
 import cv2
 import numpy as np
 import torch
@@ -21,11 +7,17 @@ from torchvision.models import vit_b_16, ViT_B_16_Weights
 
 
 class TransReIDEncoder:
-    """
-    Drop-in replacement for OSNetEncoder.
-    
-    Input : frame (BGR numpy) + bboxes (N x 4, format: x y w h)
-    Output: feature matrix (N x embed_dim), L2-normalized
+    """This class extracts L2-normalized visual features from bounding box crops using a ViT-B/16 backbone, optionally fine-tuned for person Re-ID.
+    Parameters:
+    checkpoint_path : Path to a TransReID .pth checkpoint (optional). If None, uses ImageNet-pretrained ViT-B/16 without fine-tuning.
+    device          : "cuda" or "cpu" for model inference. Default is auto-detect.
+    Attributes:
+    INPUT_SIZE : (w, h) tuple for resizing crops (224x224 for ViT-B/16)
+    EMBED_DIM  : dimensionality of the output feature vector (768 for ViT-B
+    MEAN, STD  : normalization parameters for ImageNet pre-trained models
+    model       : ViT-B/16 backbone with final head removed (outputs CLS token features
+    transform   : torchvision transforms for preprocessing crops
+    __call__     : method to process a frame and bounding boxes, returning features
     """
 
     INPUT_SIZE = (224, 224)   # ViT-B/16 expects exactly 224x224

@@ -1,13 +1,3 @@
-"""
-CarTracker — Deep SORT tabanlı araç takipçisi.
-
-Önceki sürümde sadece IoU eşleştirmesi vardı → oklüzyon = ID switch.
-Bu sürümde:
-  - Deep SORT + görsel özellik (ResNet18 encoder) kullanılıyor
-  - History xyxy formatında tutulmakta (draw_trail ile tutarlı)
-  - Person tracker ile aynı mimaride → tutarlılık sağlandı
-"""
-
 import cv2
 import numpy as np
 import torch
@@ -21,28 +11,34 @@ from deep_sort.deep_sort.detection import Detection
 
 
 # ──────────────────────────────────────────────────────────────────────────────
-# Araç Re-ID Encoder  (ResNet18 — araçlar için ViT overkill, bu yeterli)
+# Vehicle Re-ID Encoder  
 # ──────────────────────────────────────────────────────────────────────────────
 class CarEncoder:
-    """
-    Bounding box crop'larından L2-normalize edilmiş görsel özellik çıkarır.
-    Input : BGR frame + bboxes (N x 4, xywh formatı)
-    Output: feature matrix (N x 512), L2-normalized
+    """This class extracts L2-normalized visual features from bounding box crops.
+    Parameters:
+    device : "cuda" or "cpu" for model inference
+    Attributes:
+    INPUT_SIZE : (w, h) tuple for resizing crops (standard for vehicle Re-ID
+    EMBED_DIM  : dimensionality of the output feature vector (512 for ResNet18)
+    MEAN, STD  : normalization parameters for ImageNet pre-trained models
+    model       : ResNet18 backbone with final FC layer removed (512-dim output)
+    transform   : torchvision transforms for preprocessing crops
+    __call__     : method to process a frame and bounding boxes, returning features
     """
 
-    INPUT_SIZE = (128, 256)   # w x h  — araç Re-ID standart boyutu
+    INPUT_SIZE = (128, 256)   # common size for vehicle Re-ID (w, h)
     EMBED_DIM  = 512
 
     MEAN = [0.485, 0.456, 0.406]
     STD  = [0.229, 0.224, 0.225]
 
     def __init__(self, device: str = None):
+        """Initialize the CarEncoder with a ResNet18 backbone and set up the device and transforms."""
         if device is None:
             device = 'cuda' if torch.cuda.is_available() else 'cpu'
         self.device = device
 
         backbone = resnet18(weights=ResNet18_Weights.IMAGENET1K_V1)
-        # FC katmanını identity yap → 512-dim embedding al
         backbone.fc = nn.Identity()
         self.model = backbone
         self.model.eval()
@@ -56,7 +52,7 @@ class CarEncoder:
         ])
 
     def _crop(self, frame: np.ndarray, box: np.ndarray):
-        """xywh formatındaki box'u frame'den kırp (BGR→RGB)."""
+        """Crop the image patch defined by the bounding box and convert it to RGB."""
         h_frame, w_frame = frame.shape[:2]
         x, y, w, h = box.astype(int)
         x = max(0, x);  y = max(0, y)
@@ -70,6 +66,7 @@ class CarEncoder:
         return cv2.cvtColor(crop, cv2.COLOR_BGR2RGB)
 
     def __call__(self, frame: np.ndarray, bboxes_xywh: np.ndarray) -> np.ndarray:
+        """Extract L2-normalized features for each bounding box in the frame."""
         crops, valid_idx = [], []
         for i, box in enumerate(bboxes_xywh):
             rgb = self._crop(frame, box)
@@ -97,17 +94,22 @@ class CarEncoder:
 
 
 # ──────────────────────────────────────────────────────────────────────────────
-# Public track objesi
+# Public track object and utility functions
 # ──────────────────────────────────────────────────────────────────────────────
 class CarTrack:
-    """
-    Dışarıya açılan track objesi.
-    bbox  : [x1, y1, x2, y2]  (xyxy formatı)
-    history: [[x1,y1,x2,y2], ...]  — draw_trail ile tutarlı (xyxy)
+    """Public track object for cars, containing track ID, current bounding box, and history of past bounding boxes.
+    Parameters:
+    track_id : unique identifier for the track
+    bbox     : current bounding box in xyxy format (x1, y1, x2, y2)
+    history  : list of past bounding boxes (xyxy format) for trail visualization
+    Attributes:
+    __slots__ : defines the attributes for memory efficiency
+    __init__   : initializes the CarTrack with track_id, bbox, and starts history with the initial bbox
     """
     __slots__ = ("track_id", "bbox", "history")
 
     def __init__(self, track_id: int, bbox):
+        """Initialize a CarTrack with a track ID and bounding box, and start the history with the initial bounding box."""
         self.track_id = track_id
         self.bbox     = bbox          # xyxy
         self.history  = [list(bbox)]  # xyxy listesi
@@ -117,16 +119,20 @@ class CarTrack:
 # CarTracker
 # ──────────────────────────────────────────────────────────────────────────────
 class CarTracker:
+    """This class manages the tracking of cars using Deep SORT, including feature extraction with CarEncoder and maintaining track histories for visualization.
+    Parameters:
+    max_cosine_distance : threshold for feature matching in Deep SORT (default 0.4 for vehicles)
+    nn_budget           : maximum number of features to store for each track (default None for unlimited
+    max_age             : maximum number of frames to keep a track without updates (default 30)
+    Attributes:
+    tracker : Deep SORT tracker instance
+    encoder : CarEncoder instance for feature extraction
+    _histories : dictionary mapping track IDs to their history of bounding boxes for trail visualization
+    tracks : list of active CarTrack objects representing the current state of tracked cars
     """
-    Deep SORT tabanlı araç takipçisi.
-
-    FIX-1 : Artık IoU-only değil, görsel özellik (ResNet18) de kullanılıyor.
-    FIX-4 : history xyxy formatında tutuluyor → draw_trail ile tutarlı.
-    """
-
     def __init__(
         self,
-        max_cosine_distance: float = 0.4,   # araçlar için biraz daha toleranslı
+        max_cosine_distance: float = 0.4,   # slightly more tolerant for vehicles
         nn_budget: int | None = None,
         max_age: int = 30,
     ):
@@ -136,17 +142,13 @@ class CarTracker:
         self.tracker = DeepSortTracker(metric, max_age=max_age)
         self.encoder = CarEncoder()
 
-        # Track geçmişini saklamak için: track_id → history listesi
         self._histories: dict[int, list] = {}
 
         self.tracks: list[CarTrack] = []
 
     # ──────────────────────────────────────────────────────────────────────
     def update(self, frame: np.ndarray, detections: list[list]) -> None:
-        """
-        Args:
-            frame      : BGR uint8 numpy array
-            detections : [[x1, y1, x2, y2, score], ...]  (xyxy + score)
+        """Update the tracker with new detections for the current frame, extracting features and maintaining track histories.
         """
         self.tracker.predict()
 
@@ -157,7 +159,7 @@ class CarTracker:
 
         bboxes_xyxy = np.array([d[:4] for d in detections], dtype=np.float32)
 
-        # xyxy → xywh  (Deep SORT ve encoder xywh bekliyor)
+        # xyxy → xywh
         bboxes_xywh = bboxes_xyxy.copy()
         bboxes_xywh[:, 2] = bboxes_xyxy[:, 2] - bboxes_xyxy[:, 0]   # w = x2-x1
         bboxes_xywh[:, 3] = bboxes_xyxy[:, 3] - bboxes_xyxy[:, 1]   # h = y2-y1
@@ -174,7 +176,7 @@ class CarTracker:
 
     # ──────────────────────────────────────────────────────────────────────
     def _sync_tracks(self) -> None:
-        """Deep SORT iç track'lerini public CarTrack listesine çevirir."""
+        """Convert Deep SORT's internal tracks to public CarTrack objects, maintaining history for trail visualization and cleaning up stale histories."""
         active = []
         for t in self.tracker.tracks:
             if not t.is_confirmed() or t.time_since_update > 10:
@@ -183,7 +185,7 @@ class CarTracker:
             bbox_xyxy = t.to_tlbr()   # [x1, y1, x2, y2]
             tid = t.track_id
 
-            # History'yi koru
+            # Save history for trail visualization
             if tid not in self._histories:
                 self._histories[tid] = []
             self._histories[tid].append(list(bbox_xyxy))
@@ -192,7 +194,7 @@ class CarTracker:
             track.history = self._histories[tid]
             active.append(track)
 
-        # Artık aktif olmayan track'lerin history'sini temizle (bellek)
+        # Remove histories of tracks that are no longer active
         active_ids = {t.track_id for t in active}
         stale = [tid for tid in self._histories if tid not in active_ids]
         for tid in stale:
