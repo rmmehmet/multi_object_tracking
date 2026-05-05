@@ -1,6 +1,6 @@
 # 🚗🧍 Multi-Object Tracker — Cars & Pedestrians
 
-**Real-time multi-class object tracking powered by YOLOv26, Deep SORT & OSNet Re-ID**
+**Real-time multi-class object tracking powered by YOLOv26, Deep SORT & TransReID**
 
 *Computer vision meets swarm-inspired detection — track what moves, remember who it is*
 
@@ -12,7 +12,7 @@
 
 ---
 
-A real-time multi-object tracking pipeline built with **YOLOv26**, **Deep SORT**, and **OSNet** that simultaneously tracks vehicles and pedestrians in video footage. Cars are tracked with an IoU-based tracker featuring motion trails, while pedestrians are tracked using appearance-based re-identification via OSNet embeddings.
+A real-time multi-object tracking pipeline built with **YOLOv26**, **Deep SORT**, and **TransReID** that simultaneously tracks vehicles and pedestrians in video footage. Cars are tracked with an IoU-based tracker featuring motion trails, while pedestrians are tracked using appearance-based re-identification via OSNet embeddings.
 
 ---
 
@@ -21,7 +21,7 @@ A real-time multi-object tracking pipeline built with **YOLOv26**, **Deep SORT**
 - **Dual-class tracking** — independent tracker instances for persons and vehicles
 - **IoU-based car tracker** — lightweight, fast, and effective for vehicle tracking
 - **Deep SORT person tracker** — appearance-aware tracking using cosine distance metric
-- **OSNet re-identification** — robust feature extraction for pedestrian re-ID across frames
+- **TransReID re-identification** — robust feature extraction for pedestrian re-ID across frames
 - **Motion trail visualization** — historical bounding box paths rendered for car tracks
 - **Unique color-coded IDs** — distinct visual labels per tracked object (`P-{id}` / `C-{id}`)
 - **Configurable confidence threshold** — easy filtering of low-confidence detections
@@ -40,8 +40,8 @@ Input Video
          │              │
          ▼              ▼
 ┌──────────────┐  ┌─────────────────────────────────────┐
-│  CarTracker  │  │           PersonTracker              │
-│  (IoU-based) │  │  Deep SORT + OSNet Re-ID Encoder    │
+│  CarTracker  │  │           PersonTracker             │
+│  (IoU-based) │  │  Deep SORT + TransReID Encoder      │
 └──────────────┘  └─────────────────────────────────────┘
          │              │
          ▼              ▼
@@ -57,7 +57,7 @@ Input Video
 
 ```
 ├── models/
-│   ├── yolo26n.pt                  # YOLOv8 weights
+│   ├── yolo8s.pt                  # YOLO weights 
 │   └── osnet_encoder.py            # OSNet feature extractor
 ├── trackers/
 │   ├── car_tracker.py              # IoU-based car tracker
@@ -153,7 +153,7 @@ All key parameters are defined at the top of `main.py`:
 
 The `CarTracker` uses Intersection over Union (IoU) to associate new detections with existing tracks each frame. If the IoU between a detection and an existing track exceeds 0.4, the track is updated; otherwise a new track is created. Historical bounding boxes are stored per track and used to render a motion trail on the output video.
 
-### Person Tracking (Deep SORT + OSNet)
+### Person Tracking (Deep SORT + TransReID)
 
 The `PersonTracker` wraps the Deep SORT algorithm with an OSNet-powered appearance encoder. For each detected person, a 128×256 image crop is extracted, preprocessed, and passed through `osnet_x1_0` (pretrained on a large Re-ID dataset) to produce a normalized 512-dimensional feature vector. Deep SORT uses these embeddings alongside Kalman-filter-based motion prediction to maintain stable identities across frames — even through short occlusions.
 

@@ -5,7 +5,7 @@ from trackers.person_tracker import PersonTracker
 from trackers.car_tracker import CarTracker
 
 video_path = os.path.join('.', 'videos', '2954065-hd_1920_1080_30fps.mp4')
-video_out_path = os.path.join('.', 'output', 'output_trans_id.mp4')
+video_out_path = os.path.join('.', 'output', 'output_trans_reid_111.mp4')
 
 cap = cv2.VideoCapture(video_path)
 ret, frame = cap.read()
