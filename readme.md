@@ -14,6 +14,8 @@
 
 A real-time multi-object tracking pipeline built with **YOLOv26**, **Deep SORT**, and **TransReID** that simultaneously tracks vehicles and pedestrians in video footage. Cars are tracked with an IoU-based tracker featuring motion trails, while pedestrians are tracked using appearance-based re-identification via OSNet embeddings.
 
+![Sample Output](imgs/sample_output.png)
+
 ---
 
 ## ✨ Features
